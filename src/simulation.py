@@ -22,34 +22,39 @@ class SprintSimulation:
         self.sprint_metrics = []
         self.failed_resource_requests = defaultdict(int)
         
+        # WIP tracking
+        self.wip_limit = len([m for m in self._initialize_team() if Role.DEVELOPER in m.roles]) * 2
+        self.active_stories = set()
+        
         # Additional tracking
         self.current_sprint_start = 0
         self.work_started = False
         self.resource_pool = {}
         self._initialize_resource_pools()
 
-    def _initialize_team(self) -> List[TeamMember]:
+    def _initialize_team(self):
+        """Initialize the team with members and their roles"""
         team = []
         
-        # PO roles with primary/secondary/tertiary
-        team.extend([
-            TeamMember("PO1", {Role.PO_PRIMARY, Role.REVIEWER}, Role.PO_PRIMARY, self.env),
-            TeamMember("PO2", {Role.PO_SECONDARY, Role.DEVELOPER, Role.REVIEWER}, Role.DEVELOPER, self.env),
-            TeamMember("PO3", {Role.PO_TERTIARY, Role.DEVELOPER, Role.REVIEWER}, Role.DEVELOPER, self.env),
-        ])
+        # Primary PO
+        team.append(TeamMember("PO", Role.PO_PRIMARY, [Role.PO_PRIMARY, Role.REVIEWER], self.env))
         
-        # Admin roles with primary/secondary/tertiary
-        team.extend([
-            TeamMember("ADMIN1", {Role.ADMIN_PRIMARY, Role.REVIEWER}, Role.ADMIN_PRIMARY, self.env),
-            TeamMember("ADMIN2", {Role.ADMIN_SECONDARY, Role.DEVELOPER, Role.REVIEWER}, Role.DEVELOPER, self.env),
-            TeamMember("ADMIN3", {Role.ADMIN_TERTIARY, Role.DEVELOPER, Role.REVIEWER}, Role.DEVELOPER, self.env),
-        ])
+        # Primary Admin
+        team.append(TeamMember("Admin", Role.ADMIN_PRIMARY, [Role.ADMIN_PRIMARY, Role.REVIEWER], self.env))
+        
+        # Secondary PO (also developer)
+        team.append(TeamMember("Dev1", Role.DEVELOPER, [Role.DEVELOPER, Role.PO_SECONDARY, Role.REVIEWER], self.env))
+        team.append(TeamMember("Dev2", Role.DEVELOPER, [Role.DEVELOPER, Role.PO_TERTIARY, Role.REVIEWER], self.env))
+        
+        # Secondary Admin (also developer)
+        team.append(TeamMember("Dev3", Role.DEVELOPER, [Role.DEVELOPER, Role.ADMIN_SECONDARY, Role.REVIEWER], self.env))
+        team.append(TeamMember("Dev4", Role.DEVELOPER, [Role.DEVELOPER, Role.ADMIN_TERTIARY, Role.REVIEWER], self.env))
         
         # Pure developers
-        team.extend([
-            TeamMember(f"DEV{i}", {Role.DEVELOPER, Role.REVIEWER}, Role.DEVELOPER, self.env)
-            for i in range(4)
-        ])
+        team.append(TeamMember("Dev5", Role.DEVELOPER, [Role.DEVELOPER, Role.REVIEWER], self.env))
+        team.append(TeamMember("Dev6", Role.DEVELOPER, [Role.DEVELOPER, Role.REVIEWER], self.env))
+        team.append(TeamMember("Dev7", Role.DEVELOPER, [Role.DEVELOPER, Role.REVIEWER], self.env))
+        team.append(TeamMember("Dev8", Role.DEVELOPER, [Role.DEVELOPER, Role.REVIEWER], self.env))
         
         return team
 
@@ -95,90 +100,24 @@ class SprintSimulation:
         except Exception as e:
             logger.error(f"Error conducting {meeting.name} meeting: {str(e)}")
 
-    def _get_available_member(self, role: Role, story_id: int, hours_needed: float, 
-                            phase: str = None) -> Optional[TeamMember]:
-        """Find available team member with resource pool management"""
-        if not self.resource_pool[role].users and self.resource_pool[role].queue:
-            self.failed_resource_requests[role] += 1
-            logger.warning(f"Resource pool depleted for {role.name}, {len(self.resource_pool[role].queue)} waiting")
-            return None
-
-        # Handle PO role hierarchy
-        if role == Role.PO_PRIMARY:
-            for member in self.team_members:
-                if Role.PO_PRIMARY in member.roles:
-                    available, reason = member.is_available(role, story_id, hours_needed)
-                    if available:
-                        return member
-        elif role == Role.PO_SECONDARY:
-            # Try secondary first, then tertiary
-            for member in self.team_members:
-                if Role.PO_SECONDARY in member.roles:
-                    available, reason = member.is_available(role, story_id, hours_needed)
-                    if available:
-                        return member
-            for member in self.team_members:
-                if Role.PO_TERTIARY in member.roles:
-                    available, reason = member.is_available(role, story_id, hours_needed)
-                    if available:
-                        return member
-        elif role == Role.PO_TERTIARY:
-            for member in self.team_members:
-                if Role.PO_TERTIARY in member.roles:
-                    available, reason = member.is_available(role, story_id, hours_needed)
-                    if available:
-                        return member
-                        
-        # Handle Admin role hierarchy
-        elif role == Role.ADMIN_PRIMARY:
-            for member in self.team_members:
-                if Role.ADMIN_PRIMARY in member.roles:
-                    available, reason = member.is_available(role, story_id, hours_needed)
-                    if available:
-                        return member
-        elif role == Role.ADMIN_SECONDARY:
-            # Try secondary first, then tertiary
-            for member in self.team_members:
-                if Role.ADMIN_SECONDARY in member.roles:
-                    available, reason = member.is_available(role, story_id, hours_needed)
-                    if available:
-                        return member
-            for member in self.team_members:
-                if Role.ADMIN_TERTIARY in member.roles:
-                    available, reason = member.is_available(role, story_id, hours_needed)
-                    if available:
-                        return member
-        elif role == Role.ADMIN_TERTIARY:
-            for member in self.team_members:
-                if Role.ADMIN_TERTIARY in member.roles:
-                    available, reason = member.is_available(role, story_id, hours_needed)
-                    if available:
-                        return member
+    def _get_available_member(self, role: Role, story_id: int = None) -> Optional[TeamMember]:
+        """Find an available team member for a given role"""
+        available_members = []
         
-        # Handle other roles (Developer, Reviewer)
-        else:
-            primary_candidates = []
-            secondary_candidates = []
+        # First try to find members whose primary role matches
+        primary_matches = [m for m in self.team_members if m.primary_role == role and 
+                         m.daily_hours_worked < m.max_daily_hours and
+                         (m.current_story is None or m.current_story == story_id)]
+        if primary_matches:
+            return random.choice(primary_matches)
             
-            for member in self.team_members:
-                available, reason = member.is_available(role, story_id, hours_needed)
-                if not available:
-                    continue
-                    
-                if member.primary_role == role:
-                    primary_candidates.append(member)
-                elif role in member.roles:
-                    secondary_candidates.append(member)
+        # Then try to find members who can do this role as a secondary role
+        secondary_matches = [m for m in self.team_members if role in m.roles and 
+                           m.daily_hours_worked < m.max_daily_hours and
+                           (m.current_story is None or m.current_story == story_id)]
+        if secondary_matches:
+            return random.choice(secondary_matches)
             
-            if primary_candidates:
-                return random.choice(primary_candidates)
-                
-            if secondary_candidates:
-                return random.choice(secondary_candidates)
-        
-        self.failed_resource_requests[role] += 1
-        if phase:
-            logger.warning(f"Story {story_id} blocked in {phase} waiting for {role.name}")
         return None
 
     def story_development_process(self, story: Story):
@@ -189,20 +128,25 @@ class SprintSimulation:
             remaining_hours = story.get_phase_hours('dev')
             
             while remaining_hours > 0:
-                with self.resource_pool[Role.DEVELOPER].request() as request:
-                    yield request
+                # Try to find an available developer first
+                developer = self._get_available_member(Role.DEVELOPER, story.id)
+                
+                if developer:
+                    # Calculate work hours based on developer's remaining capacity
+                    work_hours = min(remaining_hours, 8.0 - developer.daily_hours_worked)
                     
-                    developer = self._get_available_member(Role.DEVELOPER, story.id, 
-                                                        min(remaining_hours, 8.0), 'development')
-                    if developer:
-                        work_hours = min(remaining_hours, 8.0 - developer.daily_hours_worked)
+                    # Request the developer resource
+                    with self.resource_pool[Role.DEVELOPER].request() as request:
+                        yield request
+                        
                         developer.start_work(Role.DEVELOPER, story.id, work_hours, "Development")
                         story.assigned_members[Role.DEVELOPER] = developer.name
                         yield self.env.timeout(work_hours)
                         developer.end_work()
                         remaining_hours -= work_hours
-                    else:
-                        yield self.env.timeout(1)
+                else:
+                    # If no developer is available, wait an hour before trying again
+                    yield self.env.timeout(1)
             
             return True
         except Exception as e:
@@ -222,8 +166,7 @@ class SprintSimulation:
                     with self.resource_pool[Role.REVIEWER].request() as request:
                         yield request
                         
-                        reviewer = self._get_available_member(Role.REVIEWER, story.id, 
-                                                           min(remaining_hours, 8.0), 'review')
+                        reviewer = self._get_available_member(Role.REVIEWER, story.id)
                         if reviewer and reviewer.name != story.assigned_members.get(Role.DEVELOPER):
                             work_hours = min(remaining_hours, 8.0 - reviewer.daily_hours_worked)
                             reviewer.start_work(Role.REVIEWER, story.id, work_hours, "Peer Review")
@@ -257,8 +200,7 @@ class SprintSimulation:
                 with self.resource_pool[Role.DEVELOPER].request() as request:
                     yield request
                     
-                    developer = self._get_available_member(Role.DEVELOPER, story.id, 
-                                                       min(rework_hours, 8.0), f'{phase}_rework')
+                    developer = self._get_available_member(Role.DEVELOPER, story.id)
                     if developer and developer.name == story.assigned_members.get(Role.DEVELOPER):
                         work_hours = min(rework_hours, 8.0 - developer.daily_hours_worked)
                         developer.start_work(Role.DEVELOPER, story.id, work_hours, 
@@ -285,8 +227,7 @@ class SprintSimulation:
                     with self.resource_pool[Role.PO_PRIMARY].request() as request:
                         yield request
                         
-                        po = self._get_available_member(Role.PO_PRIMARY, story.id, 
-                                                      min(remaining_hours, 8.0), 'po_review')
+                        po = self._get_available_member(Role.PO_PRIMARY, story.id)
                         if po:
                             work_hours = min(remaining_hours, 8.0 - po.daily_hours_worked)
                             po.start_work(Role.PO_PRIMARY, story.id, work_hours, "PO Review")
@@ -324,8 +265,7 @@ class SprintSimulation:
                     with self.resource_pool[Role.ADMIN_PRIMARY].request() as request:
                         yield request
                         
-                        admin = self._get_available_member(Role.ADMIN_PRIMARY, story.id, 
-                                                         min(remaining_hours, 8.0), 'validation')
+                        admin = self._get_available_member(Role.ADMIN_PRIMARY, story.id)
                         if admin:
                             work_hours = min(remaining_hours, 8.0 - admin.daily_hours_worked)
                             admin.start_work(Role.ADMIN_PRIMARY, story.id, work_hours, "Validation")
@@ -353,9 +293,21 @@ class SprintSimulation:
     def story_lifecycle_process(self, story: Story):
         """Main process for handling a story's complete lifecycle"""
         try:
+            # Wait until WIP is below limit
+            while len(self.active_stories) >= self.wip_limit:
+                yield self.env.timeout(1)  # Check every hour
+                # Clean up completed stories
+                self.active_stories = {s for s in self.active_stories if s.phase != Phase.DONE}
+                logger.debug(f"Current WIP: {len(self.active_stories)}/{self.wip_limit} stories")
+            
+            # Add story to active set
+            self.active_stories.add(story)
+            logger.info(f"Starting story {story.id} (WIP: {len(self.active_stories)}/{self.wip_limit})")
+            
             # Development Phase
             dev_result = yield from self.story_development_process(story)
             if not dev_result:
+                self.active_stories.remove(story)
                 return
 
             # Check for blocking
@@ -368,16 +320,19 @@ class SprintSimulation:
             # Peer Review Phase
             review_result = yield from self.story_review_process(story)
             if not review_result:
+                self.active_stories.remove(story)
                 return
 
             # PO Review Phase
             po_result = yield from self.story_po_review_process(story)
             if not po_result:
+                self.active_stories.remove(story)
                 return
 
             # Validation Phase
             validation_result = yield from self.story_validation_process(story)
             if not validation_result:
+                self.active_stories.remove(story)
                 return
 
             story.phase = Phase.DONE
@@ -385,8 +340,13 @@ class SprintSimulation:
             self.completed_points += story.points
             logger.info(f"Story {story.id} ({story.points} pts) completed in {story.completion_time - story.start_time:.1f} hours")
             
+            # Remove from active stories
+            self.active_stories.remove(story)
+            
         except Exception as e:
             logger.error(f"Error in story {story.id} lifecycle: {str(e)}")
+            if story in self.active_stories:
+                self.active_stories.remove(story)
 
     def ceremonies_process(self):
         """Process for handling sprint ceremonies"""
@@ -449,7 +409,7 @@ class SprintSimulation:
                 # Start story lifecycles with slight delays to prevent resource contention at start
                 for i, story in enumerate(self.stories):
                     self.env.process(self.story_lifecycle_process(story))
-                    yield self.env.timeout(random.uniform(0, 4))  # Stagger story starts
+                    yield self.env.timeout(random.uniform(4, 16))  # Stagger story starts more significantly
 
                 # Run simulation
                 yield self.env.timeout(self.sprint_days * 8 * 6)  # Run for 6 sprints max
@@ -579,31 +539,14 @@ class SprintSimulation:
         }
 
     def _analyze_cycle_times(self):
-        """Analyze story cycle times"""
+        """Analyze cycle times for completed stories"""
         completed_stories = [s for s in self.stories if s.completion_time]
-        if not completed_stories:
-            return {}
-            
-        cycle_times = [s.completion_time - s.start_time for s in completed_stories]
-        cycle_times_by_points = defaultdict(list)
-        for story in completed_stories:
-            cycle_times_by_points[story.points].append(
-                story.completion_time - story.start_time)
-            
-        return {
+        analysis = {
+            'stories': completed_stories,
             'overall': {
-                'mean': np.mean(cycle_times),
-                'median': np.median(cycle_times),
-                'std': np.std(cycle_times),
-                'min': min(cycle_times),
-                'max': max(cycle_times)
-            },
-            'by_points': {
-                points: {
-                    'mean': np.mean(times),
-                    'median': np.median(times),
-                    'std': np.std(times)
-                }
-                for points, times in cycle_times_by_points.items()
+                'mean': np.mean([s.completion_time - s.start_time for s in completed_stories]),
+                'median': np.median([s.completion_time - s.start_time for s in completed_stories]),
+                'std': np.std([s.completion_time - s.start_time for s in completed_stories])
             }
         }
+        return analysis

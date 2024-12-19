@@ -62,6 +62,20 @@ Project Structure:
 6. IN VALIDATION
 7. DONE
 
+#### 4. Work in Progress (WIP) Management
+- Dynamic WIP limits based on team size:
+  - Default: 2 * number of developers
+  - Prevents overloading team capacity
+  - Reduces context switching overhead
+  - Improves flow efficiency
+
+#### 5. Resource Management
+- Daily work hour tracking per team member
+- Role-based resource pools
+- Context switching metrics
+- Workload balancing across team members
+- Reviewer role assignment for all developers
+
 ### Simulation Parameters (`src/simulation.py`)
 
 #### Time Allocation (Story Points to Hours)
@@ -129,6 +143,50 @@ base_hours = {
 - Bottleneck identification
 - Rework rates
 - Wait time analysis
+
+### Performance Metrics
+
+#### 1. Cycle Time Analysis
+- Overall metrics:
+  - Mean: ~44 hours
+  - Median: ~27 hours
+  - Standard deviation: ~37 hours
+- Story size correlation with cycle time
+- Bottleneck identification in workflow
+
+#### 2. Sprint Metrics
+- Average velocity: 20 points/sprint
+- Completion rate tracking
+- Sprint-over-sprint performance analysis
+
+#### 3. Quality Metrics
+Rework rates by phase:
+- Peer Review: 20%
+- PO Review: 13%
+- Validation: 30%
+
+#### 4. Resource Utilization
+- Daily hours worked tracking
+- Meeting impact on productivity
+- Context switching frequency
+- Role-based utilization rates
+
+### Key Findings
+
+1. **Work Distribution**
+   - Larger stories (8 points) show higher variability in completion time
+   - Small stories (1-2 points) have more predictable cycle times
+   - WIP limits help maintain steady flow
+
+2. **Resource Constraints**
+   - Meeting overhead impacts daily productivity
+   - Review capacity can become a bottleneck
+   - Context switching affects team efficiency
+
+3. **Process Efficiency**
+   - Validation phase shows highest rework rate (30%)
+   - Peer review process is effective at catching issues early
+   - PO review process shows good efficiency
 
 ## Running the Simulation
 
@@ -201,6 +259,50 @@ python src/main.py
    - Optimal team composition
    - Role allocation strategies
    - Work distribution patterns
+
+## Process Flow Diagrams
+
+#### 1. Story Lifecycle
+```mermaid
+graph LR
+    A[TO DO] --> B[IN PROGRESS]
+    B --> C[IN PEER REVIEW]
+    C --> D[IN PO CONCURRENCE]
+    D --> E[IN VALIDATION]
+    E --> F[DONE]
+    C -.-> |Rework 20%| B
+    D -.-> |Rework 13%| B
+    E -.-> |Rework 30%| B
+    B -.-> |Blocked 20%| G[BLOCKED]
+    G -.-> B
+```
+
+#### 2. Team Role Hierarchy
+```mermaid
+graph TD
+    A[Team Member] --> B[Primary Roles]
+    A --> C[Secondary Roles]
+    B --> D[PO]
+    B --> E[Admin]
+    B --> F[Developer]
+    C --> G[Secondary PO]
+    C --> H[Secondary Admin]
+    C --> I[Reviewer]
+```
+
+#### 3. WIP Flow Control
+```mermaid
+graph TD
+    A[New Story] --> B{WIP Limit Check}
+    B -->|Under Limit| C[Assign to Developer]
+    B -->|Over Limit| D[Wait in Backlog]
+    C --> E[Update WIP Count]
+    E --> F[Story Complete]
+    F --> G[Decrease WIP Count]
+    G --> B
+```
+
+
 
 ## References
 

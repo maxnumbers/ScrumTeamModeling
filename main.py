@@ -32,4 +32,4 @@ def run_simulation(total_points: int = 50):
 
 if __name__ == "__main__":
     # Run simulation with 50 story points
-    results = run_simulation(50)
+    results = run_simulation(120)

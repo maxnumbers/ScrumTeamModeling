@@ -4,9 +4,36 @@ from collections import defaultdict
 import random
 import logging
 from datetime import datetime
-from src.enums import Role, Phase, Meeting
+from enum import Enum
+from src.enums import Phase, Meeting
 
 logger = logging.getLogger('sprint_simulation')
+
+class Role(Enum):
+    DEVELOPER = "DEVELOPER"
+    REVIEWER = "REVIEWER"
+    PO_PRIMARY = "PO_PRIMARY"
+    PO_SECONDARY = "PO_SECONDARY"
+    PO_TERTIARY = "PO_TERTIARY"
+    ADMIN_PRIMARY = "ADMIN_PRIMARY"
+    ADMIN_SECONDARY = "ADMIN_SECONDARY"
+    ADMIN_TERTIARY = "ADMIN_TERTIARY"
+
+    def __eq__(self, other):
+        if isinstance(other, Role):
+            return self.value == other.value
+        return False
+
+    def __hash__(self):
+        return hash(self.value)
+
+    @staticmethod
+    def is_po_role(role: 'Role') -> bool:
+        return role in [Role.PO_PRIMARY, Role.PO_SECONDARY, Role.PO_TERTIARY]
+
+    @staticmethod
+    def is_admin_role(role: 'Role') -> bool:
+        return role in [Role.ADMIN_PRIMARY, Role.ADMIN_SECONDARY, Role.ADMIN_TERTIARY]
 
 @dataclass
 class TimeBlock:
@@ -19,19 +46,20 @@ class TimeBlock:
 @dataclass
 class TeamMember:
     name: str
-    roles: Set[Role]
     primary_role: Role
+    roles: List[Role]
     env: 'simpy.Environment'
-    current_role: Optional[Role] = None
+    daily_hours_worked: float = 0
     current_story: Optional[int] = None
-    daily_hours_worked: float = 0.0
-    weekly_hours_worked: float = 0.0
+    current_role: Optional[Role] = None
+    current_task: Optional[str] = None
+    weekly_hours_worked: float = 0
     total_hours_worked: Dict[Role, float] = field(default_factory=lambda: defaultdict(float))
     non_dev_hours: Dict[Meeting, float] = field(default_factory=lambda: defaultdict(float))
-    story_points_contributed: Dict[str, int] = field(default_factory=lambda: defaultdict(int))
-    schedule: List[TimeBlock] = field(default_factory=list)
     context_switches: int = 0
     last_task: Optional[Tuple[str, int]] = None
+    schedule: List[TimeBlock] = field(default_factory=list)
+    story_points_contributed: Dict[str, int] = field(default_factory=lambda: defaultdict(int))
     failed_assignments: int = 0
     max_weekly_hours: float = 40.0
     max_daily_hours: float = 8.0
@@ -70,21 +98,16 @@ class TeamMember:
                     
         return True, "Available"
 
-    def start_work(self, role: Role, story_id: int, hours: float, activity: str):
-        if hours <= 0:
-            raise ValueError(f"Invalid work duration: {hours} hours")
-        
-        available, reason = self.is_available(role, story_id, hours)
-        if not available:
-            raise RuntimeError(f"Cannot start work: {reason}")
-
-        self.current_role = role
+    def start_work(self, role: Role, story_id: int, hours: float, task: str):
+        """Start working on a task"""
         self.current_story = story_id
+        self.current_role = role
+        self.current_task = task
         self.daily_hours_worked += hours
         self.weekly_hours_worked += hours
         self.total_hours_worked[role] += hours
 
-        current_task = (activity, story_id)
+        current_task = (task, story_id)
         if self.last_task and self.last_task != current_task:
             self.context_switches += 1
         self.last_task = current_task
@@ -92,15 +115,24 @@ class TeamMember:
         self.schedule.append(TimeBlock(
             start=self.env.now,
             duration=hours,
-            activity=activity,
+            activity=task,
             story_id=story_id
         ))
         
-        logger.debug(f"{self.name} started {activity} on story {story_id} for {hours} hours")
+        logger.debug(f"{self.name} started {task} on story {story_id} for {hours} hours")
 
     def end_work(self):
-        self.current_role = None
+        """End current work task"""
         self.current_story = None
+        self.current_role = None
+        self.current_task = None
+
+    def reset_daily_hours(self):
+        """Reset daily hours worked at the start of a new day"""
+        self.daily_hours_worked = 0
+        self.current_story = None
+        self.current_role = None
+        self.current_task = None
 
     def attend_meeting(self, meeting: Meeting, duration: float):
         if duration <= 0:
@@ -126,20 +158,23 @@ class Story:
     points: int
     env: 'simpy.Environment'
     phase: Phase = Phase.TODO
+    start_time: float = None
+    completion_time: float = None
     assigned_members: Dict[Role, str] = field(default_factory=dict)
-    blockers: List[str] = field(default_factory=list)
-    start_time: Optional[float] = None
-    completion_time: Optional[float] = None
+    time_in_phases: Dict[Phase, float] = field(default_factory=lambda: defaultdict(float))
+    phase_start_times: Dict[Phase, float] = field(default_factory=dict)
     review_iterations: int = 0
     po_review_iterations: int = 0
     validation_iterations: int = 0
-    time_in_phases: Dict[Phase, float] = field(default_factory=lambda: defaultdict(float))
-    phase_start_times: Dict[Phase, float] = field(default_factory=dict)
-    max_attempts: Dict[str, int] = field(default_factory=lambda: {
-        'review': 3,
-        'po_review': 2,
-        'validation': 2
-    })
+    max_attempts: Dict[str, int] = field(default_factory=lambda: {'review': 3, 'po_review': 2, 'validation': 2})
+
+    def __hash__(self):
+        return hash(self.id)
+    
+    def __eq__(self, other):
+        if not isinstance(other, Story):
+            return NotImplemented
+        return self.id == other.id
 
     def get_phase_hours(self, phase: str) -> float:
         base_hours = {

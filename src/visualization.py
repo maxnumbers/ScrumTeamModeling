@@ -1,6 +1,11 @@
 import matplotlib.pyplot as plt
 import seaborn as sns
+import numpy as np
 from typing import Dict, Any
+import os
+
+# Create images directory if it doesn't exist
+os.makedirs('images', exist_ok=True)
 
 def plot_velocity_trend(sprint_metrics):
     """Plot velocity trend over sprints"""
@@ -11,7 +16,7 @@ def plot_velocity_trend(sprint_metrics):
     plt.xlabel('Sprint Number')
     plt.ylabel('Story Points Completed')
     plt.grid(True)
-    plt.savefig('velocity_trend.png')
+    plt.savefig('images/sprint_velocity.png')
     plt.close()
 
 def plot_bottlenecks(bottlenecks):
@@ -62,7 +67,7 @@ def plot_bottlenecks(bottlenecks):
     plt.xticks(rotation=45)
     
     plt.tight_layout()
-    plt.savefig('bottlenecks.png')
+    plt.savefig('images/resource_util.png')
     plt.close()
 
 def plot_team_utilization(team_utilization):
@@ -92,27 +97,58 @@ def plot_team_utilization(team_utilization):
     plt.xticks(rotation=45)
     
     plt.tight_layout()
-    plt.savefig('team_utilization.png')
+    plt.savefig('images/team_utilization.png')
     plt.close()
 
 def plot_cycle_times(cycle_analysis):
     """Plot cycle time analysis"""
+    plt.figure(figsize=(10, 6))
+    
+    # Plot cycle times by story size
+    story_sizes = sorted(list(set(story.points for story in cycle_analysis['stories'])))
+    cycle_times = [[] for _ in story_sizes]
+    
+    for story in cycle_analysis['stories']:
+        idx = story_sizes.index(story.points)
+        cycle_times[idx].append(story.completion_time - story.start_time)
+    
+    # Calculate statistics
+    medians = [np.median(times) if times else 0 for times in cycle_times]
+    p75 = [np.percentile(times, 75) if times else 0 for times in cycle_times]
+    p25 = [np.percentile(times, 25) if times else 0 for times in cycle_times]
+    
+    # Create box plot
+    plt.boxplot(cycle_times, labels=story_sizes)
+    plt.xlabel('Story Points')
+    plt.ylabel('Cycle Time (hours)')
+    plt.title('Cycle Time Distribution by Story Size')
+    
+    plt.tight_layout()
+    plt.savefig('images/cycle_time_dist.png')
+    plt.close()
+
+def plot_story_flow(sprint_metrics):
+    """Plot cumulative flow diagram"""
     plt.figure(figsize=(12, 6))
     
-    # Cycle times by points
-    points_data = cycle_analysis['by_points']
-    points = list(points_data.keys())
-    means = [data['mean'] for data in points_data.values()]
-    stds = [data['std'] for data in points_data.values()]
+    # Extract data for cumulative flow
+    sprints = range(1, len(sprint_metrics) + 1)
+    started = np.cumsum([sprint['stories_started'] for sprint in sprint_metrics])
+    completed = np.cumsum([sprint['stories_completed'] for sprint in sprint_metrics])
     
-    plt.bar(points, means, yerr=stds)
-    plt.title('Cycle Time by Story Points')
-    plt.xlabel('Story Points')
-    plt.ylabel('Hours')
+    plt.fill_between(sprints, started, label='In Progress', alpha=0.3)
+    plt.fill_between(sprints, completed, label='Completed', alpha=0.3)
+    plt.plot(sprints, started, 'b-', label='Started')
+    plt.plot(sprints, completed, 'g-', label='Completed')
+    
+    plt.title('Story Flow Over Time')
+    plt.xlabel('Sprint Number')
+    plt.ylabel('Cumulative Stories')
+    plt.legend()
     plt.grid(True)
     
     plt.tight_layout()
-    plt.savefig('cycle_times.png')
+    plt.savefig('images/story_flow.png')
     plt.close()
 
 def print_summary(results: Dict[str, Any]):
@@ -148,4 +184,5 @@ def visualize_results(results: Dict[str, Any]):
     plot_bottlenecks(results['bottlenecks'])
     plot_team_utilization(results['team_utilization'])
     plot_cycle_times(results['cycle_time_analysis'])
+    plot_story_flow(results['sprint_metrics'])
     print_summary(results)
