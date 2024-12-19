@@ -5,15 +5,27 @@ This project implements a discrete event simulation of a Scrum team's developmen
 
 ## Implementation Details
 Project Structure:
-.
-├── README.md           # Comprehensive documentation
-├── requirements.txt    # Project dependencies
-└── src/
+```plaintext
+ScrumTeamModeling/
+│
+├── README.md           # Project documentation
+├── Premise.md         # Project requirements and goals
+├── main.py            # Application entry point
+├── requirements.txt   # Project dependencies
+│
+├── images/            # Generated visualization plots
+│   ├── cycle_time_dist.png
+│   ├── resource_util.png
+│   ├── sprint_velocity.png
+│   ├── story_flow.png
+│   └── team_utilization.png
+│
+└── src/               # Source code
     ├── enums.py       # Role, Phase, and Meeting enums
     ├── models.py      # Story and TeamMember domain models
     ├── simulation.py  # Core simulation logic
-    ├── visualization.py # Analysis and visualization
-    └── main.py        # Application entry point
+    └── visualization.py # Analysis and visualization
+```
 
 ### Core Components
 
@@ -197,7 +209,7 @@ pip install -r requirements.txt
 
 ### Execution
 ```bash
-python src/main.py
+python main.py
 ```
 
 ### Output
